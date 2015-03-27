@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+import pifacerelayplus
+import time
+
+if __name__ == "__main__":
+  pfr = pifacerelayplus.PiFaceRelayPlus(pifacerelayplus.RELAY)
+  pfr.relays[0].toggle()
+  time.sleep(3)
+  pfr.relays[0].toggle()

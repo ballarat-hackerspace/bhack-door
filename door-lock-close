@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+import pifacerelayplus
+
+if __name__ == "__main__":
+  pfr = pifacerelayplus.PiFaceRelayPlus(pifacerelayplus.RELAY)
