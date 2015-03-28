@@ -26,24 +26,24 @@ class StoreHandler(BaseHTTPRequestHandler):
 
         if self.path == '/open':
             if not testing:
+                self.slack_api("open")
                 pfr.relays[0].value = 1
             self.send_message({"message": "Hack away"})
-            self.slack_api("open")
 
         elif self.path == "/close":
             if not testing:
+                self.slack_api("close")
                 pfr.relays[0].value = 0
             self.send_message({"message": "Door shut"})
-            self.slack_api("close")
 
         elif self.path.startswith("/enter"):
             time_to_sleep = 3
             if not testing:
+                self.slack_api("enter")
                 pfr.relays[0].value = 1
                 time.sleep(time_to_sleep)
                 pfr.relays[0].value = 0
             self.send_message({"message": "Hack away, door will shut behind you in {} seconds".format(time_to_sleep)})
-            self.slack_api("enter")
 
         elif self.path == "/status":
             if testing:
