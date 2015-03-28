@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
+
+import ssl
+import sys
 import json
 import time
+import syslog
+import configparser
+import http.client
+import urllib.parse
+
 from os import curdir
 from os.path import join as pjoin
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
-
 
 testing = False
 
@@ -15,6 +22,27 @@ if not testing:
 
 class StoreHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        host = ConfigSectionMap('slack')['host']
+        path = ConfigSectionMap('slack')['path']
+        channel = ConfigSectionMap('slack')['channel']
+        username = ConfigSectionMap('slack')['username']
+        icon = ConfigSectionMap('slack')['icon_emoji']
+
+        headers = {"Content-type": "application/x-www-form-urlencoded", "Accept": "text/plain"}
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        context.verify_mode = ssl.CERT_REQUIRED
+        context.load_verify_locations('/etc/ssl/certs/ca-certificates.crt')
+        conn = http.client.HTTPSConnection(host, 443, context=context)
+
+        params = urllib.parse.urlencode({'payload': '{ "channel": "%s", "username": "%s", "icon_emoji": "%s", "text": "Door function %s has been executed." }' % (channel, username, icon, self.path) })
+
+        conn.request("POST", path, params, headers)
+        response = conn.getresponse()
+        syslog.syslog("Slack API response: %s %s" % (response.status, response.reason))
+        data = response.read()
+        conn.close()
+
         if self.path == '/open':
             if not testing:
                 pfr.relays[0].value = 1
@@ -57,9 +85,32 @@ class StoreHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(message).encode())
 
 
+def ConfigSectionMap(section):
+    dict1 = {}
+    options = Config.options(section)
+    for option in options:
+        try:
+            dict1[option] = Config.get(section, option)
+            if dict1[option] == -1:
+                DebugPrint("skip: %s" % option)
+        except:
+            print("exception on %s!" % option)
+            dict1[option] = None
+    return dict1
+
 if not testing:
     pfr = pifacerelayplus.PiFaceRelayPlus(pifacerelayplus.RELAY)
 
-server = HTTPServer(('', 8080), StoreHandler)
+Config = configparser.ConfigParser()
+Config.read("serve.ini")
+
+port = 8080
+
+if (len(sys.argv) > 1):
+    port = int(sys.argv[1])
+
+syslog.syslog("Listening to port: %s" % port)
+
+server = HTTPServer(('', port), StoreHandler)
 server.serve_forever()
 
