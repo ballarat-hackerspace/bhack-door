@@ -19,9 +19,45 @@ testing = False
 if not testing:
     import pifacerelayplus
 
-
 class StoreHandler(BaseHTTPRequestHandler):
+
     def do_GET(self):
+        syslog.syslog("do_GET: %s" % self.path)
+
+        if self.path == '/open':
+            if not testing:
+                pfr.relays[0].value = 1
+            self.send_message({"message": "Hack away"})
+            self.slack_api("open")
+
+        elif self.path == "/close":
+            if not testing:
+                pfr.relays[0].value = 0
+            self.send_message({"message": "Door shut"})
+            self.slack_api("close")
+
+        elif self.path.startswith("/enter"):
+            time_to_sleep = 3
+            if not testing:
+                pfr.relays[0].value = 1
+                time.sleep(time_to_sleep)
+                pfr.relays[0].value = 0
+            self.send_message({"message": "Hack away, door will shut behind you in {} seconds".format(time_to_sleep)})
+            self.slack_api("enter")
+
+        elif self.path == "/status":
+            if testing:
+                status = -1
+            else:
+                status = pfr.relays[0].value
+            self.send_message({"status": status})
+            self.slack_api("status")
+
+        else:
+            self.send_message({"message":"This is not the end point you're looking for"}, 404)
+
+    def slack_api(self, msg):
+        syslog.syslog("slack_api")
         host = ConfigSectionMap('slack')['host']
         path = ConfigSectionMap('slack')['path']
         channel = ConfigSectionMap('slack')['channel']
@@ -35,42 +71,13 @@ class StoreHandler(BaseHTTPRequestHandler):
         context.load_verify_locations('/etc/ssl/certs/ca-certificates.crt')
         conn = http.client.HTTPSConnection(host, 443, context=context)
 
-        params = urllib.parse.urlencode({'payload': '{ "channel": "%s", "username": "%s", "icon_emoji": "%s", "text": "Door function %s has been executed." }' % (channel, username, icon, self.path) })
+        params = urllib.parse.urlencode({'payload': '{ "channel": "%s", "username": "%s", "icon_emoji": "%s", "text": "Door function %s has been executed." }' % (channel, username, icon, msg) })
 
         conn.request("POST", path, params, headers)
         response = conn.getresponse()
         syslog.syslog("Slack API response: %s %s" % (response.status, response.reason))
         data = response.read()
         conn.close()
-
-        if self.path == '/open':
-            if not testing:
-                pfr.relays[0].value = 1
-            self.send_message({"message": "Hack away"})
-
-        elif self.path == "/close":
-            if not testing:
-                pfr.relays[0].value = 0
-            self.send_message({"message": "Door shut"})
-
-        elif self.path.startswith("/enter"):
-            time_to_sleep = 3
-            if not testing:
-                pfr.relays[0].value = 1
-                time.sleep(time_to_sleep)
-                pfr.relays[0].value = 0
-            self.send_message({"message": "Hack away, door will shut behind you in {} seconds".format(time_to_sleep)})
-
-        elif self.path == "/status":
-            if testing:
-                status = -1
-            else:
-                status = pfr.relays[0].value
-            self.send_message({"status": status})
-
-        else:
-            self.send_message({"message":"This is not the end point you're looking for"}, 404)
-
 
     def do_POST(self):
         return do_GET(self)
@@ -102,7 +109,7 @@ if not testing:
     pfr = pifacerelayplus.PiFaceRelayPlus(pifacerelayplus.RELAY)
 
 Config = configparser.ConfigParser()
-Config.read("serve.ini")
+Config.read("/home/pi/bhack-door/serve.ini")
 
 port = 8080
 
