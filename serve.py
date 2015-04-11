@@ -53,6 +53,9 @@ class StoreHandler(BaseHTTPRequestHandler):
             self.send_message({"status": status})
             self.slack_api("status")
 
+        elif self.path == "/ping":
+            self.send_message({"pong": True})
+
         else:
             self.send_message({"message":"This is not the end point you're looking for"}, 404)
 
