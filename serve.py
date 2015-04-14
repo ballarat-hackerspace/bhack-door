@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+from socketserver import ThreadingMixIn
+from http.server import SimpleHTTPRequestHandler, HTTPServer
+
+class ThreadingSimpleServer(ThreadingMixIn, HTTPServer):
+    pass
+
 import ssl
 import sys
 import json
@@ -12,14 +18,12 @@ import urllib.parse
 from os import curdir
 from os.path import join as pjoin
 
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
 testing = False
 
 if not testing:
     import pifacerelayplus
 
-class StoreHandler(BaseHTTPRequestHandler):
+class DoorHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         syslog.syslog("do_GET: %s" % self.path)
@@ -38,12 +42,12 @@ class StoreHandler(BaseHTTPRequestHandler):
 
         elif self.path.startswith("/enter"):
             time_to_sleep = 3
+            self.send_message({"message": "Hack away, door will shut behind you in {} seconds".format(time_to_sleep)})
             if not testing:
                 self.slack_api("enter")
                 pfr.relays[0].value = 1
                 time.sleep(time_to_sleep)
                 pfr.relays[0].value = 0
-            self.send_message({"message": "Hack away, door will shut behind you in {} seconds".format(time_to_sleep)})
 
         elif self.path == "/status":
             if testing:
@@ -93,7 +97,7 @@ class StoreHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
         self.wfile.write(json.dumps(message).encode())
-
+        self.wfile.flush()
 
 def ConfigSectionMap(section):
     dict1 = {}
@@ -121,6 +125,11 @@ if (len(sys.argv) > 1):
 
 syslog.syslog("Listening to port: %s" % port)
 
-server = HTTPServer(('', port), StoreHandler)
-server.serve_forever()
+server = ThreadingSimpleServer(('', port), DoorHandler)
+try:
+    while 1:
+        sys.stdout.flush()
+        server.handle_request()
+except:
+    print("Finished")
 
