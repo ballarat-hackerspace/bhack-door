@@ -1,0 +1,12 @@
+#!/bin/bash
+
+SOC_TEMP=$( cat /sys/class/thermal/thermal_zone0/temp )
+if [ $SOC_TEMP -ge 40000 ]; then
+  logger -t auto-temp "running hot ($SOC_TEMP), fan on."
+  /srv/door.bhack/bhack-door/fan.py -f on
+elif [ $SOC_TEMP -le 30000 ]; then
+  logger -t auto-temp "totally chill ($SOC_TEMP), fan off."
+  /srv/door.bhack/bhack-door/fan.py -f off
+else
+  logger -t auto-temp "Yeah man, but it's a dry heat! (leaving the fan alone, $SOC_TEMP)."
+fi

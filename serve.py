@@ -11,6 +11,7 @@ import sys
 import json
 import time
 import syslog
+import threading
 import configparser
 import http.client
 import urllib.parse
@@ -22,32 +23,86 @@ testing = False
 
 if not testing:
     import pifacerelayplus
+    pfr = pifacerelayplus.PiFaceRelayPlus(pifacerelayplus.RELAY)
+
+    # enable cooling on boot up
+    pfr.relays[3].value = 1
+
+#
+# DOOR WATCHER
+#
+door_watcher = False
+door_watcher_thread = None
+def door_state_set(state, duration=5):
+    global door_watcher
+
+    # set the relay value
+    if not testing:
+        pfr.relays[0].value = state
+
+    # reset to 0 after duration if set
+    if duration > 0:
+        time.sleep(duration)
+        if not testing:
+            pfr.relays[0].value = 0
+
+    door_watcher = False
+
+
+def door_control(state, duration=5):
+    global door_watcher
+    global door_watcher_thread
+
+    # early return if watcher is set
+    if door_watcher:
+        return False
+
+    door_watcher = True
+    door_watcher_thread = threading.Thread(target=door_state_set, args=(state, duration))
+    door_watcher_thread.daemon = True
+    door_watcher_thread.start()
+
+    # cap max duration to 5 seconds
+    duration = min(int(duration), 5)
+
+    return True
 
 class DoorHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         syslog.syslog("do_GET: %s" % self.path)
+        o = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(o.query)
 
         if self.path == '/open':
-            if not testing:
-                self.slack_api("open")
-                pfr.relays[0].value = 1
-            self.send_message({"message": "Hack away"})
+            if door_control(1, 0):
+                self.slack_api("Door function close has been executed.")
+                self.send_message({"message": "Hack away"})
+
+            else:
+                self.send_message({"message": "Door is busy, try again shortly!"}, 503)
+
 
         elif self.path == "/close":
-            if not testing:
+            if door_control(0, 0):
                 self.slack_api("close")
-                pfr.relays[0].value = 0
-            self.send_message({"message": "Door shut"})
+                self.send_message({"message": "Door shut"})
+            else:
+                self.send_message({"message": "Door is busy, try again shortly!"}, 503)
+
 
         elif self.path.startswith("/enter"):
-            time_to_sleep = 3
-            self.send_message({"message": "Hack away, door will shut behind you in {} seconds".format(time_to_sleep)})
-            if not testing:
-                self.slack_api("enter")
-                pfr.relays[0].value = 1
-                time.sleep(time_to_sleep)
-                pfr.relays[0].value = 0
+            time_to_sleep = 5
+            if door_control(1, time_to_sleep):
+                mac  = query.get('mac', ['???'])[0]
+                user = query.get('user', ['unknown'])[0]
+                name = query.get('name', ['unknown'])[0]
+                print(mac, user, name)
+                self.send_message({"message": "Hack away, door will shut behind you in {} seconds".format(time_to_sleep)})
+                self.slack_api("Door function enter has been executed by {0} on {1} ({2}).".format(user, name, mac))
+
+            else:
+                self.send_message({"message": "Door is busy, try again shortly!"}, 503)
 
         elif self.path == "/status":
             if testing:
@@ -55,7 +110,7 @@ class DoorHandler(SimpleHTTPRequestHandler):
             else:
                 status = pfr.relays[0].value
             self.send_message({"status": status})
-            self.slack_api("status")
+            self.slack_api("Door function status has been executed.")
 
         elif self.path == "/ping":
             self.send_message({"pong": True})
@@ -64,7 +119,11 @@ class DoorHandler(SimpleHTTPRequestHandler):
             self.send_message({"message":"This is not the end point you're looking for"}, 404)
 
     def slack_api(self, msg):
+        if testing:
+            return
+
         syslog.syslog("slack_api")
+
         host = ConfigSectionMap('slack')['host']
         path = ConfigSectionMap('slack')['path']
         channel = ConfigSectionMap('slack')['channel']
@@ -78,7 +137,7 @@ class DoorHandler(SimpleHTTPRequestHandler):
         context.load_verify_locations('/etc/ssl/certs/ca-certificates.crt')
         conn = http.client.HTTPSConnection(host, 443, context=context)
 
-        params = urllib.parse.urlencode({'payload': '{ "channel": "%s", "username": "%s", "icon_emoji": "%s", "text": "Door function %s has been executed." }' % (channel, username, icon, msg) })
+        params = urllib.parse.urlencode({'payload': '{ "channel": "%s", "username": "%s", "icon_emoji": "%s", "text": "%s" }' % (channel, username, icon, msg) })
 
         conn.request("POST", path, params, headers)
         response = conn.getresponse()
@@ -88,7 +147,7 @@ class DoorHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         return do_GET(self)
-        
+
     def send_message(self, message, response=200):
         self.send_response(response)
         self.send_header('Cache-control', 'no-cache, no-store, must-revalidate')
@@ -112,11 +171,8 @@ def ConfigSectionMap(section):
             dict1[option] = None
     return dict1
 
-if not testing:
-    pfr = pifacerelayplus.PiFaceRelayPlus(pifacerelayplus.RELAY)
-
 Config = configparser.ConfigParser()
-Config.read("/home/pi/bhack-door/serve.ini")
+Config.read("/srv/door.bhack/bhack-door/serve.ini")
 
 port = 8080
 
