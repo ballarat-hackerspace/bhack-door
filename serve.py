@@ -76,10 +76,11 @@ class DoorHandler(SimpleHTTPRequestHandler):
         query = urllib.parse.parse_qs(o.query)
 
         if self.path.startswith("/open"):
+            green_leds = requests.get("https://ballarathackerspace.org.au/ws2812/k")
             if door_control(1, 0):
                 self.slack_api("Door function close has been executed.")
                 self.send_message({"message": "Hack away"})
-
+                black_leds = requests.get("https://ballarathackerspace.org.au/ws2812/+")
             else:
                 self.send_message({"message": "Door is busy, try again shortly!"}, 503)
 
@@ -94,6 +95,7 @@ class DoorHandler(SimpleHTTPRequestHandler):
 
         elif self.path.startswith("/enter"):
             time_to_sleep = 5
+            green_leds = requests.get("https://ballarathackerspace.org.au/ws2812/k")
             if door_control(1, time_to_sleep):
                 mac  = query.get('mac', ['???'])[0]
                 user = query.get('user', ['unknown'])[0]
@@ -102,8 +104,8 @@ class DoorHandler(SimpleHTTPRequestHandler):
                 print(mac, user, name)
                 self.send_message({"message": "Hack away, door will shut behind you in {} seconds".format(time_to_sleep)})
                 self.slack_api("Door function enter has been executed by {0} on {1} ({2}).\nhttps://ballarathackerspace.org.au/linksys02{3}.jpg".format(user, name, mac, now))
+                black_leds = requests.get("https://ballarathackerspace.org.au/ws2812/+")
                 warm_cache = requests.get("https://ballarathackerspace.org.au/linksys02{0}.jpg".format(now))
-                green_leds = requests.get("https://ballarathackerspace.org.au/ws2812/k")
             else:
                 self.send_message({"message": "Door is busy, try again shortly!"}, 503)
 
