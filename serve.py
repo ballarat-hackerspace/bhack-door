@@ -15,6 +15,7 @@ import threading
 import configparser
 import http.client
 import urllib.parse
+import requests
 
 from os import curdir
 from os.path import join as pjoin
@@ -74,7 +75,7 @@ class DoorHandler(SimpleHTTPRequestHandler):
         o = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(o.query)
 
-        if self.path == '/open':
+        if self.path.startswith("/open"):
             if door_control(1, 0):
                 self.slack_api("Door function close has been executed.")
                 self.send_message({"message": "Hack away"})
@@ -83,7 +84,7 @@ class DoorHandler(SimpleHTTPRequestHandler):
                 self.send_message({"message": "Door is busy, try again shortly!"}, 503)
 
 
-        elif self.path == "/close":
+        elif self.path.startswith("/close"):
             if door_control(0, 0):
                 self.slack_api("close")
                 self.send_message({"message": "Door shut"})
@@ -97,10 +98,12 @@ class DoorHandler(SimpleHTTPRequestHandler):
                 mac  = query.get('mac', ['???'])[0]
                 user = query.get('user', ['unknown'])[0]
                 name = query.get('name', ['unknown'])[0]
+                now = int(time.time())
                 print(mac, user, name)
                 self.send_message({"message": "Hack away, door will shut behind you in {} seconds".format(time_to_sleep)})
-                self.slack_api("Door function enter has been executed by {0} on {1} ({2}).".format(user, name, mac))
-
+                self.slack_api("Door function enter has been executed by {0} on {1} ({2}).\nhttps://ballarathackerspace.org.au/linksys02{3}.jpg".format(user, name, mac, now))
+                warm_cache = requests.get("https://ballarathackerspace.org.au/linksys02{0}.jpg".format(now))
+                green_leds = requests.get("https://ballarathackerspace.org.au/ws2812/k")
             else:
                 self.send_message({"message": "Door is busy, try again shortly!"}, 503)
 
